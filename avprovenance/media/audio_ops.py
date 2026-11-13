@@ -39,7 +39,13 @@ def trim_audio(clip: AudioClip, operation: dict[str, Any]) -> AudioClip:
             "AUDIO_TRIM_EMPTY",
             "The requested audio trim produces no sample frames.",
         )
-    return replace_channels(clip, (values[start:end] for values in clip.channels))
+    # Preserve where the surviving head lives on the original source timeline.
+    new_origin = clip.source_start_frame + start
+    return replace_channels(
+        clip,
+        (values[start:end] for values in clip.channels),
+        source_start_frame=new_origin,
+    )
 
 
 def gain_audio(clip: AudioClip, operation: dict[str, Any]) -> AudioClip:
@@ -87,23 +93,72 @@ def mix_audio(
             "AUDIO_MIX_CHANNEL_MISMATCH",
             "Mixed audio sources must share a channel count.",
         )
-    frame_count = max(primary.frame_count, secondary.frame_count)
     primary_weight = float(operation["primary_weight"])
     secondary_weight = float(operation["secondary_weight"])
     secondary_factor = _gain_factor(float(operation["secondary_gain"])) * secondary_weight
+    alignment = operation.get("secondary_start_seconds")
 
-    mixed: list[list[int]] = []
+    if alignment is None:
+        # Legacy behavior: both clips are pinned at their first sample and the
+        # output spans the longer clip starting at the current primary head.
+        frame_count = max(primary.frame_count, secondary.frame_count)
+        mixed: list[list[int]] = []
+        for channel_index in range(primary.channel_count):
+            left = primary.channels[channel_index]
+            right = secondary.channels[channel_index]
+            values: list[int] = []
+            for frame_index in range(frame_count):
+                left_value = left[frame_index] if frame_index < len(left) else 0
+                right_value = right[frame_index] if frame_index < len(right) else 0
+                combined = left_value * primary_weight + right_value * secondary_factor
+                values.append(_clip_sample(combined))
+            mixed.append(values)
+        return replace_channels(primary, mixed)
+
+    # Alignment-aware behavior. Both recordings are placed on one shared
+    # timeline: the original primary recording's timeline. The current primary
+    # clip remembers how far its head was trimmed, and the secondary is placed
+    # at its recorded start position. The output covers the full union so that
+    # secondary-only lead-in/tail and the true overlap all remain audible.
+    secondary_origin = int(round(float(alignment) * primary.sample_rate))
+    primary_origin = primary.source_start_frame
+    primary_end = primary_origin + primary.frame_count
+    secondary_end = secondary_origin + secondary.frame_count
+    span_start = min(primary_origin, secondary_origin)
+    span_end = max(primary_end, secondary_end)
+    span = span_end - span_start
+    if span <= 0:
+        raise MediaOperationFailure(
+            "AUDIO_MIX_EMPTY",
+            "The aligned audio sources produce no sample frames.",
+        )
+
+    mixed = []
     for channel_index in range(primary.channel_count):
         left = primary.channels[channel_index]
         right = secondary.channels[channel_index]
-        values: list[int] = []
-        for frame_index in range(frame_count):
-            left_value = left[frame_index] if frame_index < len(left) else 0
-            right_value = right[frame_index] if frame_index < len(right) else 0
+        values = []
+        for frame in range(span_start, span_end):
+            primary_offset = frame - primary_origin
+            left_value = (
+                left[primary_offset]
+                if 0 <= primary_offset < primary.frame_count
+                else 0
+            )
+            secondary_offset = frame - secondary_origin
+            right_value = (
+                right[secondary_offset]
+                if 0 <= secondary_offset < secondary.frame_count
+                else 0
+            )
             combined = left_value * primary_weight + right_value * secondary_factor
             values.append(_clip_sample(combined))
         mixed.append(values)
-    return replace_channels(primary, mixed)
+    return replace_channels(
+        primary,
+        mixed,
+        source_start_frame=span_start,
+    )
 
 
 def render_audio(

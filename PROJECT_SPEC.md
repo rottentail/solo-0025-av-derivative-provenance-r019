@@ -196,7 +196,24 @@ Audio plans:
 - `media_trim`: `start_seconds`, `duration_seconds`
 - `audio_gain`: `db`
 - `audio_normalize`: `target_peak`
-- `audio_mix`: `secondary_gain`, `primary_weight`, `secondary_weight`
+- `audio_mix`: `secondary_gain`, `primary_weight`, `secondary_weight`, and the
+  optional `secondary_start_seconds`
+
+`audio_mix` supports two alignment modes:
+
+- When `secondary_start_seconds` is omitted, the mix keeps its legacy
+  head-aligned behavior: the first sample of each clip is pinned together,
+  regardless of any earlier `media_trim`. Plans stored without this field
+  reproduce exactly as before.
+- When `secondary_start_seconds` is provided, it is the position of the
+  secondary recording's first sample on the primary recording's original
+  timeline, measured in seconds. Negative values mean the secondary began
+  before the primary. A preceding `media_trim` no longer snaps the secondary
+  back to the primary head: each clip is placed by its original time position,
+  and the output spans the full union of both recordings, so secondary-only
+  lead-in/tail and the true overlap all remain audible. The normalized value is
+  retained in the stored plan and plan digest, which explains why the seam sits
+  where it does and keeps integrity replay byte-identical.
 
 Video plans:
 

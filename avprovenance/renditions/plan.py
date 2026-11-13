@@ -95,12 +95,13 @@ def _audio_mix(
             "secondary_gain",
             "primary_weight",
             "secondary_weight",
+            "secondary_start_seconds",
         },
         "audio_mix",
     )
     if not has_secondary:
         raise PlanInvalid("audio_mix requires secondary_asset_id.")
-    return {
+    normalized = {
         "type": "audio_mix",
         "secondary_gain": require_number(
             operation.get("secondary_gain"),
@@ -121,6 +122,18 @@ def _audio_mix(
             maximum=1.5,
         ),
     }
+    # Omitted alignment keeps the legacy head-aligned mix. When supplied, the
+    # value is the secondary recording's start position on the primary
+    # recording's original timeline; negative means the secondary began first.
+    alignment = operation.get("secondary_start_seconds")
+    if alignment is not None:
+        normalized["secondary_start_seconds"] = require_number(
+            alignment,
+            "secondary_start_seconds",
+            minimum=-60,
+            maximum=60,
+        )
+    return normalized
 
 
 def _video_trim(operation: dict[str, Any]) -> dict[str, Any]:

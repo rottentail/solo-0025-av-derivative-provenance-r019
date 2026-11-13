@@ -85,7 +85,34 @@ Audio-only operations:
 - `media_trim` with `start_seconds` and `duration_seconds`
 - `audio_gain` with `db`
 - `audio_normalize` with `target_peak`
-- `audio_mix` with `secondary_gain`, `primary_weight`, and `secondary_weight`
+- `audio_mix` with `secondary_gain`, `primary_weight`, `secondary_weight`, and
+  the optional `secondary_start_seconds`
+
+### Aligned audio mixing
+
+By default `audio_mix` pins the first sample of both clips together (legacy
+head alignment). To preserve the alignment the two recordings originally had,
+pass `secondary_start_seconds`: the position of the secondary recording's first
+sample on the primary recording's original timeline. A negative value means the
+secondary started before the primary.
+
+```json
+{
+  "type": "audio_mix",
+  "secondary_gain": -6,
+  "primary_weight": 0.75,
+  "secondary_weight": 0.4,
+  "secondary_start_seconds": -0.15
+}
+```
+
+With explicit alignment, a preceding `media_trim` on the primary no longer
+pulls the secondary back to the primary head. The output covers the full union
+of the two spans, so a secondary that starts early or runs longer keeps its
+lead-in and tail audible, and the genuinely overlapping region is the only part
+where the two signals sum. The normalized `secondary_start_seconds` is stored in
+the plan (and its digest), so lineage and integrity replay reproduce the same
+seam exactly. Omitting the field leaves older recipes byte-identical.
 
 Video-only operations:
 
@@ -131,7 +158,8 @@ Audio mixing plan:
     "type": "audio_mix",
     "secondary_gain": -6,
     "primary_weight": 0.75,
-    "secondary_weight": 0.4
+    "secondary_weight": 0.4,
+    "secondary_start_seconds": -0.15
   },
   {"type": "audio_normalize", "target_peak": 0.8}
 ]

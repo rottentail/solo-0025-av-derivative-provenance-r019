@@ -17,6 +17,11 @@ from ..models import MediaDescriptor
 class AudioClip:
     sample_rate: int
     channels: tuple[list[int], ...]
+    # Position of this clip's first sample frame on the timeline of the
+    # primary source recording. Decoded sources start at zero; media_trim
+    # accumulates the trimmed head so alignment-aware mixing can locate the
+    # current clip relative to both original recordings.
+    source_start_frame: int = 0
 
     @property
     def frame_count(self) -> int:
@@ -139,6 +144,8 @@ def encode_wav(clip: AudioClip) -> bytes:
 def replace_channels(
     clip: AudioClip,
     channels: Iterable[list[int]],
+    *,
+    source_start_frame: int | None = None,
 ) -> AudioClip:
     values = tuple(list(channel) for channel in channels)
     if not values:
@@ -146,4 +153,10 @@ def replace_channels(
     expected = len(values[0])
     if any(len(channel) != expected for channel in values):
         raise UnsupportedMedia("Audio operation produced misaligned channels.")
-    return AudioClip(sample_rate=clip.sample_rate, channels=values)
+    return AudioClip(
+        sample_rate=clip.sample_rate,
+        channels=values,
+        source_start_frame=(
+            clip.source_start_frame if source_start_frame is None else source_start_frame
+        ),
+    )
